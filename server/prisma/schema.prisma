@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  OFFICER
+  DEPARTMENT_ADMIN
+  SUPER_ADMIN
+}
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+enum EmailDeliveryStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+enum GrievanceStatus {
+  SUBMITTED
+  ACKNOWLEDGED
+  ASSIGNED
+  IN_PROGRESS
+  WAITING_FOR_INFORMATION
+  RESOLVED
+  CLOSED
+  REOPENED
+  REJECTED
+}
+
+model GrievanceCounter {
+  year      Int @id
+  lastValue Int @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id String @id @default(cuid())
+  fullName String
+  email String @unique
+  studentId String? @unique
+  phone String?
+  passwordHash String
+  role Role @default(STUDENT)
+  active Boolean @default(true)
+  departmentId String?
+  department Department? @relation(fields: [departmentId], references: [id])
+  grievances Grievance[] @relation("StudentGrievances")
+  assignments GrievanceAssignment[]
+  departmentAdminAssignments GrievanceAssignment[] @relation("DepartmentAdminAssignments")
+  comments GrievanceComment[]
+  notifications Notification[]
+  feedback Feedback[]
+  auditLogs AuditLog[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([role, departmentId])
+}
+model Department {
+  id String @id @default(cuid())
+  name String @unique
+  active Boolean @default(true)
+  users User[]
+  grievances Grievance[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model GrievanceCategory {
+  id String @id @default(cuid())
+  name String @unique
+  description String?
+  active Boolean @default(true)
+  grievances Grievance[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model Grievance {
+  id String @id @default(cuid())
+  referenceNo String @unique
+  title String
+  description String @db.Text
+  location String?
+  priority Priority @default(MEDIUM)
+  status GrievanceStatus @default(SUBMITTED)
+  resolutionDetails String? @db.Text
+  studentId String
+  student User @relation("StudentGrievances", fields: [studentId], references: [id])
+  categoryId String
+  category GrievanceCategory @relation(fields: [categoryId], references: [id])
+  departmentId String?
+  department Department? @relation(fields: [departmentId], references: [id])
+  attachments GrievanceAttachment[]
+  assignments GrievanceAssignment[]
+  statusHistory GrievanceStatusHistory[]
+  comments GrievanceComment[]
+  notifications Notification[]
+  feedback Feedback?
+  emailDeliveries EmailDelivery[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([studentId, status])
+  @@index([departmentId, status])
+  @@index([status, priority])
+  @@index([createdAt])
+}
+model GrievanceAttachment {
+  id String @id @default(cuid())
+  originalName String
+  storedName String @unique
+  mimeType String
+  size Int
+  grievanceId String
+  grievance Grievance @relation(fields: [grievanceId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+model GrievanceAssignment {
+  id String @id @default(cuid())
+  grievanceId String
+  grievance Grievance @relation(fields: [grievanceId], references: [id], onDelete: Cascade)
+  officerId String?
+  officer User? @relation(fields: [officerId], references: [id])
+  departmentAdminId String?
+  departmentAdmin User? @relation("DepartmentAdminAssignments", fields: [departmentAdminId], references: [id])
+  assignedById String
+  assignedAt DateTime @default(now())
+  active Boolean @default(true)
+  @@index([officerId, active])
+  @@index([departmentAdminId, active])
+  @@index([grievanceId, active])
+}
+model GrievanceStatusHistory {
+  id String @id @default(cuid())
+  grievanceId String
+  grievance Grievance @relation(fields: [grievanceId], references: [id], onDelete: Cascade)
+  fromStatus GrievanceStatus?
+  toStatus GrievanceStatus
+  note String?
+  changedById String
+  createdAt DateTime @default(now())
+  @@index([grievanceId, createdAt])
+}
+model GrievanceComment {
+  id String @id @default(cuid())
+  grievanceId String
+  grievance Grievance @relation(fields: [grievanceId], references: [id], onDelete: Cascade)
+  authorId String
+  author User @relation(fields: [authorId], references: [id])
+  body String @db.Text
+  internal Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@index([grievanceId, createdAt])
+}
+model Notification {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grievanceId String?
+  grievance Grievance? @relation(fields: [grievanceId], references: [id], onDelete: Cascade)
+  message String
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId, readAt, createdAt])
+}
+model Feedback {
+  id String @id @default(cuid())
+  grievanceId String @unique
+  grievance Grievance @relation(fields: [grievanceId], references: [id], onDelete: Cascade)
+  studentId String
+  student User @relation(fields: [studentId], references: [id])
+  rating Int
+  comment String? @db.Text
+  createdAt DateTime @default(now())
+}
+model AuditLog {
+  id String @id @default(cuid())
+  userId String?
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action String
+  description String
+  entityType String?
+  entityId String?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+model EmailDelivery {
+  id String @id @default(cuid())
+  event String
+  recipient String
+  status EmailDeliveryStatus
+  safeError String?
+  grievanceId String?
+  grievance Grievance? @relation(fields: [grievanceId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  @@index([grievanceId, createdAt])
+  @@index([event, status, createdAt])
+}

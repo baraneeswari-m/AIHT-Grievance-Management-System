@@ -1,0 +1,3 @@
+import jwt from 'jsonwebtoken'; import { prisma } from '../config/db.js'; import { AppError } from '../utils/errors.js';
+export async function authenticate(req,res,next){ try { const token=(req.headers.authorization||'').replace(/^Bearer\s+/i,''); if(!token) throw new Error(); const payload=jwt.verify(token,process.env.JWT_SECRET); const user=await prisma.user.findUnique({where:{id:payload.sub},include:{department:true}}); if(!user||!user.active) throw new Error(); req.user=user; next(); } catch { next(new AppError(401,'Please sign in to continue.')); } }
+export const allowRoles=(...roles)=>(req,res,next)=>roles.includes(req.user.role)?next():next(new AppError(403,'You do not have permission to perform this action.'));

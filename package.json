@@ -1,0 +1,8 @@
+{
+  "name": "college-grievance-management-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "College Grievance Management System",
+  "scripts": { "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"", "build": "npm run build --prefix client", "db:generate": "npm run db:generate --prefix server", "db:migrate": "npm run db:migrate --prefix server", "db:seed": "npm run db:seed --prefix server" },
+  "devDependencies": { "concurrently": "^9.1.2" }
+}
