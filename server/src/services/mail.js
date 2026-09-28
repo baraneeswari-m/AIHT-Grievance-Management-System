@@ -23,6 +23,9 @@ function getTransporter() {
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT),
       secure: String(process.env.SMTP_SECURE).toLowerCase() === 'true',
+      connectionTimeout: 8_000,
+      greetingTimeout: 8_000,
+      socketTimeout: 15_000,
       ...(user && pass ? { auth: { user, pass } } : {})
     });
   }
