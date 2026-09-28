@@ -4,7 +4,16 @@ import api from '../services/api';
 import { Badge, Button, DataTable, Field, PageTitle, Select } from '../components/UI';
 
 const emptyForm = { fullName: '', email: '', role: 'OFFICER', departmentId: '', studentId: '', phone: '', password: '', confirmPassword: '' };
-function message(error) { return error.response?.data?.error || error.message || 'The request could not be completed.'; }
+function message(error) {
+  const data = error.response?.data;
+  if (data?.error) {
+    const details = data.details && typeof data.details === 'object'
+      ? Object.entries(data.details).flatMap(([field, messages]) => Array.isArray(messages) ? messages.map(text => `${field}: ${text}`) : []).join(' ')
+      : '';
+    return details ? `${data.error} ${details}` : data.error;
+  }
+  return error.message || 'The request could not be completed.';
+}
 
 export default function UserManagement() {
   const { user } = useAuth();
@@ -23,7 +32,9 @@ export default function UserManagement() {
   async function create(e) {
     e.preventDefault(); setBusy(true); setError(''); setNotice('');
     try {
-      const { data } = await api.post('/users', form);
+      const payload = { ...form };
+      if (payload.role === 'STUDENT' && payload.departmentId === '') delete payload.departmentId;
+      const { data } = await api.post('/users', payload);
       setForm(emptyForm); setNotice(data.emailSent ? 'Account created and setup email sent.' : 'Account created. Setup email could not be sent; share the temporary password securely.'); await load();
     } catch (e) { setError(message(e)); } finally { setBusy(false); }
   }
