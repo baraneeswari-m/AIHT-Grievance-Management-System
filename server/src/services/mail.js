@@ -47,6 +47,31 @@ async function deliveryLog({ event, recipient, status, safeError = null, grievan
   }
 }
 
+function recipientKey(address) {
+  if (typeof address === 'string') return address.trim().toLowerCase();
+  if (address && typeof address.address === 'string') return address.address.trim().toLowerCase();
+  return '';
+}
+
+async function recordRecipientResults(recipients, result, { event, grievanceId = null }) {
+  const accepted = new Set((result.accepted || []).map(recipientKey).filter(Boolean));
+  const rejected = new Set((result.rejected || []).map(recipientKey).filter(Boolean));
+
+  await Promise.all(recipients.map(recipient => {
+    const key = recipientKey(recipient);
+    if (accepted.has(key)) return deliveryLog({ event, recipient, status: 'SENT', grievanceId });
+    return deliveryLog({
+      event,
+      recipient,
+      status: 'FAILED',
+      safeError: rejected.has(key) ? 'RECIPIENT_REJECTED' : 'RECIPIENT_NOT_ACCEPTED',
+      grievanceId
+    });
+  }));
+
+  return recipients.every(recipient => accepted.has(recipientKey(recipient)));
+}
+
 export async function getEmailDiagnostics() {
   const configured = emailConfigured();
   const result = { smtpConfigured: configured, smtpHost: process.env.SMTP_HOST || null, smtpPort: Number(process.env.SMTP_PORT) || null, smtpSecure: String(process.env.SMTP_SECURE).toLowerCase() === 'true', smtpUserConfigured: Boolean(process.env.SMTP_USER), smtpPasswordConfigured: Boolean(process.env.SMTP_PASSWORD), connection: 'not-tested', safeError: null, superAdminRecipientFound: false };
@@ -104,9 +129,10 @@ export async function sendNotice({ to, subject, heading, introduction, grievance
   const html = `<!doctype html><html><body style="margin:0;background:#f4f7fb;font-family:Arial,sans-serif;color:#17233b"><div style="max-width:640px;margin:28px auto;padding:0 16px"><div style="background:#1e3a8a;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;font-size:19px;font-weight:bold">CGMS <span style="font-size:12px;font-weight:normal;color:#dbeafe">College Grievance Management System</span></div><div style="background:#fff;padding:26px 24px;border:1px solid #e5eaf2;border-top:0;border-radius:0 0 12px 12px"><h1 style="font-size:21px;margin:0 0 10px">${escapeHtml(heading)}</h1><p style="font-size:14px;line-height:1.6;color:#526178;margin:0 0 18px">${escapeHtml(introduction)}</p><table role="presentation" style="border-collapse:collapse;width:100%">${htmlRows}</table><p style="margin:24px 0 12px"><a href="${escapeHtml(link)}" style="display:inline-block;background:#315bd9;color:white;text-decoration:none;padding:12px 18px;border-radius:7px;font-weight:bold;font-size:13px">View Grievance</a></p><p style="font-size:11px;line-height:1.5;color:#7b879b">Sign in to CGMS if prompted. This link does not grant access by itself.</p></div></div></body></html>`;
 
   try {
-    await mailer.sendMail({ from: process.env.MAIL_FROM, to: recipients, subject, text, html });
-    await Promise.all(recipients.map(recipient => deliveryLog({ event, recipient, status: 'SENT', grievanceId: grievance?.id })));
-    return true;
+    const result = await mailer.sendMail({ from: process.env.MAIL_FROM, to: recipients, subject, text, html });
+    const allAccepted = await recordRecipientResults(recipients, result, { event, grievanceId: grievance?.id });
+    if (!allAccepted) console.warn('[email] SMTP did not accept every recipient.', { event });
+    return allAccepted;
   } catch (error) {
     // Avoid logging error.message: SMTP libraries may include connection details.
     console.error('[email] Delivery failed.', { code: error.code || 'SMTP_ERROR', responseCode: error.responseCode || null });
@@ -133,13 +159,14 @@ export async function sendAccountCreated({ to, fullName, role, departmentName, t
   const fields = [['Name', fullName], ['Role', role.replaceAll('_', ' ')], ['Department', departmentName || 'Not assigned'], ['Email', to], ['Temporary password', temporaryPassword]];
   const htmlRows = fields.map(([label, value]) => `<tr><th align="left" style="padding:9px 12px;color:#64748b;border-bottom:1px solid #e8edf4">${escapeHtml(label)}</th><td style="padding:9px 12px;color:#17233b;border-bottom:1px solid #e8edf4">${escapeHtml(value)}</td></tr>`).join('');
   try {
-    await mailer.sendMail({
+    const result = await mailer.sendMail({
       from: process.env.MAIL_FROM, to, subject: 'Your CGMS account has been created',
       text: `Hello ${fullName},\n\nYour CGMS account is ready.\n\n${fields.map(([label, value]) => `${label}: ${value}`).join('\n')}\n\nSign in: ${loginUrl}\nPlease change your temporary password after signing in.`,
       html: `<!doctype html><html><body style="font-family:Arial,sans-serif;background:#f4f7fb;padding:24px"><div style="max-width:620px;margin:auto;background:white;border-radius:12px;overflow:hidden"><header style="background:#1e3a8a;color:white;padding:20px;font-size:20px">CGMS · College Grievance Management System</header><main style="padding:24px"><h1 style="font-size:21px">Your account is ready</h1><p>Hello ${escapeHtml(fullName)}, an administrator created your CGMS account.</p><table style="width:100%;border-collapse:collapse">${htmlRows}</table><p><a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#315bd9;color:white;text-decoration:none;padding:12px 18px;border-radius:7px">Sign in to CGMS</a></p><p>Please change your temporary password after signing in.</p></main></div></body></html>`
     });
-    await deliveryLog({ event: 'ACCOUNT_CREATED', recipient: to, status: 'SENT' });
-    return true;
+    const allAccepted = await recordRecipientResults([to], result, { event: 'ACCOUNT_CREATED' });
+    if (!allAccepted) console.warn('[email] SMTP did not accept the account recipient.', { event: 'ACCOUNT_CREATED' });
+    return allAccepted;
   } catch (error) {
     console.error('[email] Account email delivery failed.', { code: error.code || 'SMTP_ERROR', responseCode: error.responseCode || null });
     await deliveryLog({ event: 'ACCOUNT_CREATED', recipient: to, status: 'FAILED', safeError: String(error.code || 'SMTP_ERROR').slice(0, 80) });
