@@ -34,6 +34,7 @@ export default function UserManagement() {
     try {
       const payload = { ...form };
       if (payload.role === 'STUDENT' && payload.departmentId === '') delete payload.departmentId;
+      if (payload.role !== 'STUDENT') delete payload.studentId;
       const { data } = await api.post('/users', payload);
       setForm(emptyForm); setNotice(data.emailSent ? 'Account created and setup email sent.' : 'Account created. Setup email could not be sent; share the temporary password securely.'); await load();
     } catch (e) { setError(message(e)); } finally { setBusy(false); }
